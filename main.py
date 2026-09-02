@@ -149,22 +149,56 @@ st.divider()
 
 
 # ============================================================
-# 그래프 2 — (직접 채워 넣을 자리)
+# 그래프 2 — 장르 안에 영화가 들어 있는 트리맵 (크기 = 총 관객)
 # ============================================================
-st.header("2️⃣ 두 번째 그래프")
-st.info(
-    "여기에 두 번째 그래프를 넣어 보세요. "
-    "예: 총 관객 수의 **분포**를 보는 히스토그램은 어떨까요?"
+st.header("2️⃣ 장르 → 영화 트리맵")
+st.write(
+    "칸의 **넓이**가 총 관객 수입니다. "
+    "큰 장르 칸 안에 그 장르에 속한 영화들이 다시 작은 칸으로 나뉘어 들어갑니다."
 )
 
-# TODO: 여기에 그래프를 그리는 코드를 작성해 보세요.
-# 힌트: fig2 = px.histogram(df, x="total_audi", nbins=30)
-#       st.plotly_chart(fig2, use_container_width=True)
+# 트리맵은 크기가 0이거나 비어 있으면 칸을 그릴 수 없으므로 걸러 냅니다.
+tree_df = df[df["total_audi"].notna() & (df["total_audi"] > 0)].copy()
 
+fig2 = px.treemap(
+    tree_df,
+    path=[px.Constant("전체"), "genre", "movieNm"],  # 전체 → 장르 → 영화
+    values="total_audi",                             # 칸의 크기
+    color="genre",                                   # 장르별로 색 구분
+    color_discrete_sequence=px.colors.qualitative.Set3,
+)
+
+# 마우스를 올렸을 때 보여 줄 내용 (영화명 + 총 관객)
+fig2.update_traces(
+    textinfo="label",
+    textfont_size=13,
+    hovertemplate=(
+        "<b>%{label}</b><br>"
+        "총 관객: %{value:,.0f}명"
+        "<extra></extra>"
+    ),
+    marker=dict(line=dict(color="white", width=1.5)),
+    root_color="lightgrey",
+)
+
+fig2.update_layout(
+    title="장르 안의 영화별 총 관객 수",
+    height=650,
+    margin=dict(t=60, l=10, r=10, b=10),
+)
+
+st.plotly_chart(fig2, use_container_width=True)
+
+st.caption(
+    "🖱️ 장르 칸을 클릭하면 그 장르만 확대해서 볼 수 있고, "
+    "위쪽 회색 막대를 누르면 되돌아옵니다."
+)
+
+# --- 이 그래프로 알 수 있는 것 ---
 st.subheader("💡 이 그래프로 알 수 있는 것")
 st.text_area(
     "한 문장으로 정리해 보세요.",
-    placeholder="예) 대부분의 영화는 관객이 적고, 소수의 영화만 아주 많은 관객을 모았다.",
+    placeholder="예) 편수는 적어도 한두 편의 큰 흥행작이 장르 전체의 관객 수를 끌어올린 장르가 있다.",
     key="insight_2",
     height=80,
 )
