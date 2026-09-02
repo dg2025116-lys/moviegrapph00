@@ -207,23 +207,105 @@ st.divider()
 
 
 # ============================================================
-# 그래프 3 — (직접 채워 넣을 자리)
+# 그래프 3 — 총 관객 수 히스토그램
 # ============================================================
-st.header("3️⃣ 세 번째 그래프")
-st.info(
-    "여기에 세 번째 그래프를 넣어 보세요. "
-    "예: 개봉 첫 주 관객과 총 관객의 **관계**를 보는 산점도는 어떨까요?"
+st.header("3️⃣ 총 관객 수는 어떻게 흩어져 있을까?")
+st.write(
+    "가로축을 관객 수 구간으로 잘라, 각 구간에 몇 편의 영화가 들어가는지 세어 봅니다."
 )
 
-# TODO: 여기에 그래프를 그리는 코드를 작성해 보세요.
-# 힌트: fig3 = px.scatter(df, x="first_week_audi", y="total_audi",
-#                        color="genre", hover_name="movieNm")
-#       st.plotly_chart(fig3, use_container_width=True)
+hist_df = df[df["total_audi"].notna()].copy()
 
+# 구간 개수를 학생이 직접 바꿔 볼 수 있게
+bin_count = st.slider(
+    "구간(막대) 개수",
+    min_value=10,
+    max_value=60,
+    value=30,
+    step=5,
+    help="막대를 잘게 나눌수록 세밀해지고, 넓게 나눌수록 큰 흐름이 보입니다.",
+)
+
+fig3 = px.histogram(
+    hist_df,
+    x="total_audi",
+    nbins=bin_count,
+    color_discrete_sequence=["#4C78A8"],
+    labels={"total_audi": "총 관객 수(명)"},
+)
+
+fig3.update_traces(
+    marker=dict(line=dict(color="white", width=1)),
+    hovertemplate=(
+        "관객 수 구간: %{x}<br>"
+        "영화 편수: %{y}편"
+        "<extra></extra>"
+    ),
+)
+
+fig3.update_layout(
+    title="총 관객 수 분포",
+    xaxis_title="총 관객 수(명)",
+    yaxis_title="영화 편수",
+    bargap=0.05,
+    height=520,
+)
+
+st.plotly_chart(fig3, use_container_width=True)
+
+
+# ------------------------------------------------------------
+# 히스토그램에서 읽어 낸 사실을 문구로 자동 정리
+# ------------------------------------------------------------
+
+# (1) 막대 폭을 직접 계산해, 편수가 가장 많은 구간을 찾는다
+audi_min = hist_df["total_audi"].min()
+audi_max = hist_df["total_audi"].max()
+bin_width = (audi_max - audi_min) / bin_count
+
+# 각 영화가 몇 번째 구간에 들어가는지 번호를 매긴다
+bin_index = ((hist_df["total_audi"] - audi_min) / bin_width).astype(int)
+bin_index = bin_index.clip(upper=bin_count - 1)   # 최댓값이 마지막 구간을 넘지 않게
+
+top_bin = bin_index.value_counts().idxmax()       # 편수가 가장 많은 구간 번호
+top_bin_n = int(bin_index.value_counts().max())   # 그 구간의 편수
+bin_low = audi_min + top_bin * bin_width
+bin_high = bin_low + bin_width
+
+# (2) 관객이 가장 많은 영화
+best = hist_df.loc[hist_df["total_audi"].idxmax()]
+
+# (3) 중앙값과 평균 — 분포가 한쪽으로 쏠렸는지 보여 주는 단서
+median_audi = hist_df["total_audi"].median()
+mean_audi = hist_df["total_audi"].mean()
+
+c1, c2, c3 = st.columns(3)
+c1.metric("영화 편수", f"{len(hist_df):,} 편")
+c2.metric("중앙값 관객", f"{median_audi:,.0f} 명")
+c3.metric("평균 관객", f"{mean_audi:,.0f} 명")
+
+st.success(
+    f"📌 가장 많은 영화가 몰려 있는 구간은 "
+    f"**{bin_low:,.0f}명 ~ {bin_high:,.0f}명**이고, "
+    f"이 구간에만 **{top_bin_n}편**({top_bin_n / len(hist_df) * 100:.1f}%)이 들어 있습니다."
+)
+
+st.info(
+    f"🏆 관객이 가장 많은 영화는 **{best['movieNm']}**"
+    f"({best['genre']} · {best['nation']})으로, "
+    f"총 **{best['total_audi']:,.0f}명**을 모았습니다. "
+    f"이는 중앙값의 약 **{best['total_audi'] / median_audi:.0f}배**입니다."
+)
+
+st.caption(
+    "💭 평균이 중앙값보다 훨씬 크다면, 몇몇 큰 흥행작이 평균을 끌어올리고 있다는 뜻입니다."
+)
+
+# --- 이 그래프로 알 수 있는 것 ---
 st.subheader("💡 이 그래프로 알 수 있는 것")
 st.text_area(
     "한 문장으로 정리해 보세요.",
-    placeholder="예) 개봉 첫 주 관객이 많을수록 총 관객도 많아지는 경향이 뚜렷하다.",
+    placeholder="예) 대부분의 영화는 관객이 적은 쪽에 몰려 있고, 아주 소수의 영화만 오른쪽으로 길게 뻗어 있다.",
     key="insight_3",
     height=80,
 )
