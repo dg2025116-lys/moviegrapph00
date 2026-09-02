@@ -468,4 +468,159 @@ st.text_area(
 
 st.divider()
 
+
+# ============================================================
+# 그래프 5 — 장르별 총 관객 상자 그림 (10편 이상 장르만)
+# ============================================================
+st.header("5️⃣ 장르별 관객 수의 허리와 꼬리")
+st.write(
+    "상자 하나가 장르 하나입니다. "
+    "**상자 안쪽**에 그 장르 영화의 절반이 들어 있고, "
+    "**상자 밖으로 튀어나온 점**은 유난히 관객이 많거나 적었던 영화입니다."
+)
+
+box_base = df[df["total_audi"].notna()].copy()
+
+# 편수가 적은 장르는 상자가 신뢰하기 어려우므로 걸러 낸다
+MIN_COUNT = 10
+genre_size = box_base["genre"].value_counts()
+kept_genres = genre_size[genre_size >= MIN_COUNT].index.tolist()
+
+box_df = box_base[box_base["genre"].isin(kept_genres)].copy()
+
+# 중앙값이 큰 장르부터 왼쪽에 놓기 (읽기 쉽게)
+order = (
+    box_df.groupby("genre")["total_audi"]
+    .median()
+    .sort_values(ascending=False)
+    .index.tolist()
+)
+
+fig5 = px.box(
+    box_df,
+    x="genre",
+    y="total_audi",
+    color="genre",
+    category_orders={"genre": order},
+    points="outliers",                  # 튀는 점만 찍기
+    hover_name="movieNm",               # 점에 마우스를 올리면 영화명
+    hover_data={
+        "genre": False,
+        "nation": True,
+        "total_audi": ":,",
+        "days_in_top10": True,
+    },
+    labels={
+        "genre": "장르",
+        "total_audi": "총 관객 수(명)",
+        "nation": "제작 국가",
+        "days_in_top10": "10위권 머문 날수",
+    },
+    color_discrete_sequence=px.colors.qualitative.Pastel,
+)
+
+fig5.update_traces(
+    marker=dict(size=9, line=dict(color="#444", width=1)),
+    line=dict(width=2),
+)
+
+fig5.update_layout(
+    title=f"장르별 총 관객 수 분포 (영화 {MIN_COUNT}편 이상인 장르만)",
+    xaxis_title="장르",
+    yaxis_title="총 관객 수(명)",
+    height=620,
+    showlegend=False,
+)
+
+st.plotly_chart(fig5, use_container_width=True)
+
+st.caption(
+    "🖱️ 상자 밖에 홀로 떨어진 점에 마우스를 올려 보세요. 그 장르의 '유별난 영화'가 누구인지 알 수 있습니다."
+)
+
+
+# ------------------------------------------------------------
+# 상자 그림에서 읽어 낸 사실을 문구로 정리
+# ------------------------------------------------------------
+
+# 걸러진 장르 안내
+dropped = genre_size[genre_size < MIN_COUNT]
+c1, c2, c3 = st.columns(3)
+c1.metric("그린 장르 수", f"{len(kept_genres)} 개")
+c2.metric("그린 영화 편수", f"{len(box_df):,} 편")
+c3.metric("제외된 장르 수", f"{len(dropped)} 개")
+
+# 중앙값이 가장 큰 장르 / 가장 작은 장르
+med_by_genre = box_df.groupby("genre")["total_audi"].median().sort_values()
+low_g, low_v = med_by_genre.index[0], med_by_genre.iloc[0]
+high_g, high_v = med_by_genre.index[-1], med_by_genre.iloc[-1]
+
+st.success(
+    f"📌 가운뎃값(중앙값)이 가장 높은 장르는 **{high_g}**({high_v:,.0f}명), "
+    f"가장 낮은 장르는 **{low_g}**({low_v:,.0f}명)입니다. "
+    f"두 장르의 '보통 영화'는 관객 수가 약 **{high_v / low_v:.1f}배** 차이 납니다."
+)
+
+
+# 각 장르에서 위쪽으로 튀어나온 영화(상단 이상치)를 직접 찾아보기
+def find_upper_outliers(group: pd.DataFrame) -> pd.DataFrame:
+    """상자 위쪽 수염을 넘어선 영화들을 골라낸다."""
+    q1 = group["total_audi"].quantile(0.25)
+    q3 = group["total_audi"].quantile(0.75)
+    iqr = q3 - q1                       # 상자의 높이
+    fence = q3 + 1.5 * iqr              # 위쪽 수염의 끝
+    return group[group["total_audi"] > fence]
+
+
+outlier_rows = []
+for g in order:
+    part = box_df[box_df["genre"] == g]
+    outs = find_upper_outliers(part)
+    for _, r in outs.iterrows():
+        outlier_rows.append(
+            {
+                "장르": g,
+                "영화명": r["movieNm"],
+                "총 관객": int(r["total_audi"]),
+                "제작 국가": r["nation"],
+                "10위권 머문 날수": int(r["days_in_top10"])
+                if pd.notna(r["days_in_top10"])
+                else None,
+            }
+        )
+
+if outlier_rows:
+    outlier_df = pd.DataFrame(outlier_rows).sort_values(
+        "총 관객", ascending=False
+    )
+    st.info(
+        f"🔍 상자 위쪽으로 튀어나온 영화가 모두 **{len(outlier_df)}편** 있습니다. "
+        "같은 장르 안에서도 유독 크게 성공한 영화들입니다."
+    )
+    st.dataframe(
+        outlier_df.style.format({"총 관객": "{:,}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+else:
+    st.info("🔍 상자 밖으로 크게 튀어나온 영화가 없습니다.")
+
+if len(dropped) > 0:
+    st.caption(
+        f"💭 영화가 {MIN_COUNT}편 미만이라 제외한 장르: "
+        + ", ".join(f"{g}({n}편)" for g, n in dropped.items())
+        + " — 표본이 적으면 상자 모양을 믿기 어렵기 때문입니다."
+    )
+
+# --- 이 그래프로 알 수 있는 것 ---
+st.subheader("💡 이 그래프로 알 수 있는 것")
+st.text_area(
+    "한 문장으로 정리해 보세요.",
+    placeholder="예) 장르마다 '보통 영화'의 관객 수가 다르고, 어떤 장르는 몇몇 대박작이 위로 크게 튀어나와 있다.",
+    key="insight_5",
+    height=80,
+)
+
+st.divider()
+
 st.caption("데이터 출처: 영화진흥위원회(KOBIS) 박스오피스 자료 재가공")
