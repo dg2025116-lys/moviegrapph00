@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # ------------------------------------------------------------
 # 1. 페이지 기본 설정
@@ -53,6 +54,12 @@ def load_data(url: str) -> pd.DataFrame:
     ]
     for col in num_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # 날짜에서 쓸 만한 조각들을 미리 뽑아 둔다
+    df["year"] = df["openDt"].dt.year
+    df["month"] = df["openDt"].dt.month
+    df["ym"] = df["openDt"].dt.to_period("M").astype(str)   # 예: '2023-07'
+    df["weekday"] = df["openDt"].dt.dayofweek               # 월=0 ... 일=6
 
     return df
 
@@ -857,6 +864,167 @@ st.text_area(
     "한 문장으로 정리해 보세요.",
     placeholder="예) 한국 영화는 장르가 고르게 퍼져 있는 반면, 어떤 나라는 특정 장르에 몰려 있다.",
     key="insight_7",
+    height=80,
+)
+
+st.divider()
+
+
+# ============================================================
+# 그래프 8 — 월별 개봉 편수와 관객 추이 (막대 + 선, 축 두 개)
+# ============================================================
+st.header("8️⃣ 언제 개봉하느냐가 중요할까?")
+st.write(
+    "드디어 **개봉일(openDt)** 을 씁니다. "
+    "**막대는 그 달에 개봉한 편수**, **선은 그 달 개봉작들이 모은 총 관객 합계**입니다. "
+    "두 값은 단위가 완전히 다르므로 **세로축을 왼쪽·오른쪽 두 개** 씁니다."
+)
+
+time_df = df[df["openDt"].notna() & df["total_audi"].notna()].copy()
+
+# 시간을 어떤 단위로 묶을지 고르게 하기
+unit = st.radio(
+    "시간을 묶는 단위",
+    options=["연-월 순서대로", "월(1~12월)로 합치기"],
+    index=0,
+    horizontal=True,
+    help=(
+        "'연-월'은 실제 흐른 시간 그대로 보고, "
+        "'월로 합치기'는 여러 해의 같은 달을 한 칸에 모아 계절성을 봅니다."
+    ),
+    key="time_unit",
+)
+
+if unit == "연-월 순서대로":
+    key_col = "ym"
+    monthly = (
+        time_df.groupby(key_col)
+        .agg(편수=("movieCd", "count"), 총관객=("total_audi", "sum"))
+        .reset_index()
+        .sort_values(key_col)            # 문자열이지만 'YYYY-MM'이라 정렬이 맞음
+    )
+    x_vals = monthly[key_col]
+    x_title = "개봉 연-월"
+else:
+    key_col = "month"
+    monthly = (
+        time_df.groupby(key_col)
+        .agg(편수=("movieCd", "count"), 총관객=("total_audi", "sum"))
+        .reset_index()
+        .sort_values(key_col)
+    )
+    x_vals = monthly[key_col].astype(str) + "월"
+    x_title = "개봉 월"
+
+# 편당 평균 관객도 함께 구해 둔다 (편수가 많아서 합계가 큰 건지 구분하려고)
+monthly["편당평균"] = monthly["총관객"] / monthly["편수"]
+
+# 축이 두 개인 그래프 만들기
+fig8 = make_subplots(specs=[[{"secondary_y": True}]])
+
+# (1) 막대 — 개봉 편수 (왼쪽 축)
+fig8.add_trace(
+    go.Bar(
+        x=x_vals,
+        y=monthly["편수"],
+        name="개봉 편수",
+        marker=dict(color="#A8C5DD", line=dict(color="white", width=1)),
+        hovertemplate="<b>%{x}</b><br>개봉 편수: %{y}편<extra></extra>",
+    ),
+    secondary_y=False,
+)
+
+# (2) 선 — 총 관객 합계 (오른쪽 축)
+fig8.add_trace(
+    go.Scatter(
+        x=x_vals,
+        y=monthly["총관객"],
+        name="총 관객 합계",
+        mode="lines+markers",
+        line=dict(color="crimson", width=3),
+        marker=dict(size=10, line=dict(color="white", width=1)),
+        hovertemplate="<b>%{x}</b><br>총 관객 합계: %{y:,.0f}명<extra></extra>",
+    ),
+    secondary_y=True,
+)
+
+fig8.update_xaxes(title_text=x_title, tickangle=-45)
+fig8.update_yaxes(title_text="개봉 편수(편)", secondary_y=False)
+fig8.update_yaxes(
+    title_text="총 관객 합계(명)", secondary_y=True, showgrid=False
+)
+
+fig8.update_layout(
+    title="월별 개봉 편수(막대)와 총 관객 합계(선)",
+    height=600,
+    hovermode="x unified",              # 같은 x를 한꺼번에 보여 주기
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    bargap=0.25,
+)
+
+st.plotly_chart(fig8, use_container_width=True)
+
+
+# ------------------------------------------------------------
+# 월별 추이에서 읽어 낸 사실을 문구로 정리
+# ------------------------------------------------------------
+
+busiest = monthly.loc[monthly["편수"].idxmax()]        # 가장 많이 개봉한 달
+richest = monthly.loc[monthly["총관객"].idxmax()]      # 관객이 가장 많았던 달
+efficient = monthly.loc[monthly["편당평균"].idxmax()]  # 편당 평균이 가장 높은 달
+
+label_col = key_col
+def label_of(row):
+    return f"{row[label_col]}월" if key_col == "month" else str(row[label_col])
+
+t1, t2, t3 = st.columns(3)
+t1.metric("가장 많이 개봉한 달", label_of(busiest), f"{int(busiest['편수'])}편")
+t2.metric("관객이 가장 많았던 달", label_of(richest), f"{richest['총관객']:,.0f}명")
+t3.metric("편당 평균이 가장 높은 달", label_of(efficient), f"{efficient['편당평균']:,.0f}명")
+
+if label_of(busiest) == label_of(richest):
+    st.success(
+        f"📌 **{label_of(busiest)}**은 개봉 편수도({int(busiest['편수'])}편) "
+        f"관객 합계도({busiest['총관객']:,.0f}명) 가장 높았습니다. "
+        f"많이 개봉했고, 관객도 많이 들었던 달입니다."
+    )
+else:
+    st.success(
+        f"📌 가장 많이 개봉한 달은 **{label_of(busiest)}**({int(busiest['편수'])}편)이지만, "
+        f"관객이 가장 많았던 달은 **{label_of(richest)}**"
+        f"({richest['총관객']:,.0f}명)로 서로 다릅니다. "
+        f"**많이 개봉한다고 관객이 많아지는 것은 아니라는 뜻**입니다."
+    )
+
+st.info(
+    f"🔍 편당 평균 관객이 가장 높은 달은 **{label_of(efficient)}**로, "
+    f"영화 한 편이 평균 **{efficient['편당평균']:,.0f}명**을 모았습니다. "
+    f"(개봉 {int(efficient['편수'])}편) "
+    f"막대는 낮은데 선이 높은 달이 있다면, 그달엔 소수의 큰 흥행작이 있었다는 신호입니다."
+)
+
+with st.expander("📊 월별 숫자 표로 보기"):
+    show_tbl = monthly.copy()
+    show_tbl = show_tbl.rename(columns={key_col: x_title})
+    show_tbl["편당평균"] = show_tbl["편당평균"].round(0)
+    st.dataframe(
+        show_tbl.style.format({"총관객": "{:,.0f}", "편당평균": "{:,.0f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+st.caption(
+    "💭 축이 두 개인 그래프는 편리하지만 조심해야 합니다. "
+    "오른쪽 축의 범위를 어떻게 잡느냐에 따라 선이 막대보다 높아 보이거나 낮아 보이거든요. "
+    "**두 축의 눈금은 서로 비교할 수 있는 것이 아닙니다.**"
+)
+
+# --- 이 그래프로 알 수 있는 것 ---
+st.subheader("💡 이 그래프로 알 수 있는 것")
+st.text_area(
+    "한 문장으로 정리해 보세요.",
+    placeholder="예) 개봉 편수가 많은 달과 관객이 많은 달이 항상 같지는 않고, 특정 달에 흥행작이 몰려 있다.",
+    key="insight_8",
     height=80,
 )
 
