@@ -623,4 +623,243 @@ st.text_area(
 
 st.divider()
 
+
+# ============================================================
+# 그래프 6 — 버블 그래프 (점 크기 = 첫 주 관객)
+# ============================================================
+st.header("6️⃣ 같은 산점도에 '첫 주 성적'을 얹으면")
+st.write(
+    "4번 그래프와 가로·세로축은 똑같습니다. "
+    "다만 **점의 크기가 개봉 첫 주 관객 수**입니다. "
+    "축 두 개 + 색 + 크기, 네 가지 정보를 한 화면에서 봅니다."
+)
+
+bubble_df = df[
+    df["first_scrn"].notna()
+    & df["total_audi"].notna()
+    & df["first_week_audi"].notna()
+    & (df["first_week_audi"] > 0)      # 크기가 0이면 점이 사라져서 제외
+].copy()
+
+bc1, bc2 = st.columns(2)
+
+with bc1:
+    bubble_genres = st.multiselect(
+        "보고 싶은 장르 고르기 (비워 두면 전체)",
+        options=sorted(bubble_df["genre"].unique()),
+        default=[],
+        key="bubble_genre_pick",
+    )
+
+with bc2:
+    max_bubble = st.slider(
+        "가장 큰 점의 크기",
+        min_value=20,
+        max_value=90,
+        value=55,
+        step=5,
+        help="점이 서로 겹쳐 답답하면 작게, 크기 차이를 크게 보고 싶으면 크게 조절하세요.",
+        key="bubble_size",
+    )
+
+if bubble_genres:
+    bub_plot = bubble_df[bubble_df["genre"].isin(bubble_genres)]
+else:
+    bub_plot = bubble_df
+
+fig6 = px.scatter(
+    bub_plot,
+    x="first_scrn",
+    y="total_audi",
+    size="first_week_audi",              # ← 점 크기 = 첫 주 관객
+    size_max=max_bubble,
+    color="genre",
+    hover_name="movieNm",
+    hover_data={
+        "genre": True,
+        "nation": True,
+        "first_scrn": ":,",
+        "first_week_audi": ":,",
+        "total_audi": ":,",
+        "days_in_top10": True,
+    },
+    labels={
+        "first_scrn": "개봉일 스크린 수(개)",
+        "total_audi": "총 관객 수(명)",
+        "first_week_audi": "개봉 첫 주 관객(명)",
+        "genre": "장르",
+        "nation": "제작 국가",
+        "days_in_top10": "10위권 머문 날수",
+    },
+    color_discrete_sequence=px.colors.qualitative.Set2,
+    opacity=0.65,
+)
+
+fig6.update_traces(marker=dict(line=dict(color="white", width=1)))
+
+fig6.update_layout(
+    title="스크린 수 · 총 관객 · 첫 주 관객을 한눈에 (점이 클수록 첫 주 관객이 많음)",
+    xaxis_title="개봉일 스크린 수(개)",
+    yaxis_title="총 관객 수(명)",
+    height=640,
+    legend_title_text="장르",
+)
+
+st.plotly_chart(fig6, use_container_width=True)
+
+
+# ------------------------------------------------------------
+# 버블 그래프에서 읽어 낸 사실을 문구로 정리
+# ------------------------------------------------------------
+
+# '첫 주 이후에 얼마나 더 벌었나'를 나타내는 값 (배수)
+bub_calc = bub_plot.copy()
+bub_calc["후반_배수"] = bub_calc["total_audi"] / bub_calc["first_week_audi"]
+
+mc1, mc2, mc3 = st.columns(3)
+mc1.metric("그린 영화 편수", f"{len(bub_plot):,} 편")
+mc2.metric(
+    "첫 주 관객 ↔ 총 관객",
+    f"{bub_plot['first_week_audi'].corr(bub_plot['total_audi']):.2f}",
+)
+mc3.metric(
+    "첫 주 이후 배수의 중앙값",
+    f"{bub_calc['후반_배수'].median():.1f} 배",
+)
+
+if len(bub_calc) >= 5:
+    # 첫 주는 작았는데 끝까지 오래 간 영화 (점이 작은데 위에 있는 영화)
+    slow_burn = bub_calc.loc[bub_calc["후반_배수"].idxmax()]
+    # 첫 주에 몰렸다가 금방 식은 영화 (점이 큰데 생각보다 낮은 영화)
+    front_load = bub_calc.loc[bub_calc["후반_배수"].idxmin()]
+
+    st.success(
+        f"📌 **{slow_burn['movieNm']}**는 첫 주에 {slow_burn['first_week_audi']:,.0f}명이었지만 "
+        f"최종 {slow_burn['total_audi']:,.0f}명까지 늘어 **{slow_burn['후반_배수']:.1f}배**가 되었습니다. "
+        f"작은 점이 높이 올라간, 입소문으로 오래 간 영화입니다."
+    )
+    st.info(
+        f"🔍 반대로 **{front_load['movieNm']}**는 첫 주 {front_load['first_week_audi']:,.0f}명에서 "
+        f"최종 {front_load['total_audi']:,.0f}명으로 **{front_load['후반_배수']:.1f}배**에 그쳤습니다. "
+        f"초반에 관객이 몰렸다가 빠르게 식은 쪽입니다."
+    )
+
+st.caption(
+    "💭 **큰 점이 아래쪽에 있으면** 첫 주에 반짝했다가 식은 영화, "
+    "**작은 점이 위쪽에 있으면** 조용히 시작해 길게 간 영화입니다. 그런 점을 찾아보세요."
+)
+
+# --- 이 그래프로 알 수 있는 것 ---
+st.subheader("💡 이 그래프로 알 수 있는 것")
+st.text_area(
+    "한 문장으로 정리해 보세요.",
+    placeholder="예) 첫 주 관객이 많은 영화가 대체로 총 관객도 많지만, 작게 출발해 크게 자란 영화도 있다.",
+    key="insight_6",
+    height=80,
+)
+
+st.divider()
+
+
+# ============================================================
+# 그래프 7 — 제작 국가 → 장르 선버스트 (크기 = 영화 편수)
+# ============================================================
+st.header("7️⃣ 나라에서 장르로 내려가 보기")
+st.write(
+    "가운데가 **제작 국가**, 바깥 고리가 그 나라의 **장르**입니다. "
+    "조각의 크기는 **영화 편수**입니다."
+)
+
+sun_df = df[df["nation"].notna() & df["genre"].notna()].copy()
+
+# 국가-장르 조합별 편수를 미리 세어 둔다
+sun_count = (
+    sun_df.groupby(["nation", "genre"])
+    .size()
+    .reset_index(name="편수")
+)
+
+fig7 = px.sunburst(
+    sun_count,
+    path=["nation", "genre"],           # 안쪽 → 바깥쪽
+    values="편수",                       # 조각의 크기
+    color="nation",
+    color_discrete_sequence=px.colors.qualitative.Pastel1,
+    labels={"nation": "제작 국가", "genre": "장르", "편수": "영화 편수"},
+)
+
+fig7.update_traces(
+    textinfo="label+percent parent",     # 부모 조각 대비 비율
+    insidetextorientation="radial",
+    hovertemplate=(
+        "<b>%{label}</b><br>"
+        "영화 편수: %{value}편<br>"
+        "전체에서 차지하는 비율: %{percentRoot:.1%}<br>"
+        "한 단계 위 대비: %{percentParent:.1%}"
+        "<extra></extra>"
+    ),
+    marker=dict(line=dict(color="white", width=2)),
+)
+
+fig7.update_layout(
+    title="제작 국가 → 장르별 영화 편수",
+    height=680,
+    margin=dict(t=60, l=10, r=10, b=10),
+)
+
+st.plotly_chart(fig7, use_container_width=True)
+
+st.caption("🖱️ 안쪽 국가 조각을 클릭하면 그 나라만 펼쳐 볼 수 있고, 가운데를 누르면 되돌아옵니다.")
+
+
+# ------------------------------------------------------------
+# 선버스트에서 읽어 낸 사실을 문구로 정리
+# ------------------------------------------------------------
+
+nation_count = sun_df["nation"].value_counts()
+top_nation = nation_count.index[0]
+top_nation_n = int(nation_count.iloc[0])
+
+sc1, sc2, sc3 = st.columns(3)
+sc1.metric("제작 국가 수", f"{sun_df['nation'].nunique()} 개")
+sc2.metric("가장 많은 나라", f"{top_nation}")
+sc3.metric(
+    f"{top_nation} 비중",
+    f"{top_nation_n / len(sun_df) * 100:.1f}%",
+)
+
+st.success(
+    f"📌 216편 가운데 **{top_nation}** 영화가 **{top_nation_n}편**"
+    f"({top_nation_n / len(sun_df) * 100:.1f}%)으로 가장 많습니다."
+)
+
+# 편수가 많은 상위 나라들의 '대표 장르'를 뽑아 비교
+main_nations = nation_count[nation_count >= 5].index.tolist()
+if len(main_nations) >= 2:
+    lines = []
+    for n in main_nations[:5]:
+        part = sun_df[sun_df["nation"] == n]
+        g = part["genre"].value_counts()
+        lines.append(
+            f"- **{n}** ({len(part)}편) → 가장 많은 장르는 "
+            f"**{g.index[0]}** ({int(g.iloc[0])}편, {g.iloc[0] / len(part) * 100:.0f}%)"
+        )
+    st.info("🔍 나라마다 주력 장르가 다릅니다.\n\n" + "\n".join(lines))
+
+st.caption(
+    "💭 1번 도넛은 장르만, 이 선버스트는 '나라 안의 장르'를 봅니다. "
+    "같은 장르라도 어느 나라 작품이 많은지 확인해 보세요."
+)
+
+# --- 이 그래프로 알 수 있는 것 ---
+st.subheader("💡 이 그래프로 알 수 있는 것")
+st.text_area(
+    "한 문장으로 정리해 보세요.",
+    placeholder="예) 한국 영화는 장르가 고르게 퍼져 있는 반면, 어떤 나라는 특정 장르에 몰려 있다.",
+    key="insight_7",
+    height=80,
+)
+
+st.divider()
+
 st.caption("데이터 출처: 영화진흥위원회(KOBIS) 박스오피스 자료 재가공")
